@@ -1,0 +1,19 @@
+[project]
+name = "ecfr-analyzer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "click>=8.1.8",
+    "pdfminer-six>=20240706",
+    "requests>=2.32.3",
+    "tqdm>=4.67.1",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15.0",
+    "types-requests>=2.32.0.20241016",
+    "types-tqdm>=4.67.0.20241221",
+]

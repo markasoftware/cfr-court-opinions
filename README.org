@@ -1,0 +1,12 @@
+* Mark Polyakov's eCFR analyzer
+  A web tool to see interesting facts about the Code of Federal Regulations!
+
+  This tool is hosted at https://markasoftware.com/cfr and runs with data from all 2024 court
+  opinions. As you'll see below, it's possible (and beneficial!) to run it with more data, but it
+  takes a long time to download and process 
+
+  The most interesting part of this IMO is the ability to view how many US court opinions reference
+  each document.
+* Running locally
+  This tool needs both the eCFR data and US court opinions PDFs. It analyzes US court opinions to
+  search for mentions of CFRs.
