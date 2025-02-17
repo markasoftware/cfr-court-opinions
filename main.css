@@ -15,3 +15,16 @@
     width: 10rem;
     text-align: right;
 }
+
+.pdf-img {
+    height: 1.5em;
+    margin-right: 5px;
+}
+
+.pdf-link {
+    line-height: 1.5em;
+}
+
+table {
+    border: 0;
+}

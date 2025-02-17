@@ -2,10 +2,11 @@ import { sqlite3Worker1Promiser } from '@sqlite.org/sqlite-wasm';
 import mkKnex from 'knex';
 import van from 'vanjs-core';
 
-const {label, input, div, span, a, button, select, option, table, tbody, thead, tr, td, th} = van.tags;
+const {label, input, div, span, a, button, select, option, table, tbody, thead, tr, td, th, h3, img} = van.tags;
 const knex = mkKnex({client: 'sqlite3'});
 
 const databasePath = new URL('cfr-db.sqlite', import.meta.url);
+const pdfSvgPath = new URL('pdf.svg', import.meta.url);
 
 const granularities = ["title", "chapter", "part", "section", "agency"];
 
@@ -49,10 +50,17 @@ async function go() {
 	};
     }
 
+    function applyFilterObj(filterObj) {
+	agencyFilter.val = filterObj.agency;
+	titleFilter.val = filterObj.title;
+	partFilter.val = filterObj.part;
+	sectionFilter.val = filterObj.section;
+    }
+
     let granularity = van.state("title");
     let sortKey = van.state("case_word_ratio");
     let limit = van.state(100);
-    let pdfsLimit = van.state(100);
+    let pdfsLimit = van.state(20);
 
     let queryResults = van.state([]);
     let pdfs = van.state([]);
@@ -66,6 +74,8 @@ async function go() {
 	ez_query(pdfsQuery(filterObj(), pdfsLimit.val))
 	    .then(res => pdfs.val = res);
     });
+
+    const allAgencies = await ez_query(agencyListQuery());
 
     function selectorsDisplay() {
 
@@ -85,22 +95,31 @@ async function go() {
 	    titleFilter.val = partFilter.val = sectionFilter.val = '';
 	}
 
+	function sectionFilterInput(name, stateVar, disableUnlessSet = []) {
+	    return input({placeholder: name,
+			  size: 2,
+			  value: stateVar,
+			  disabled: () => !disableUnlessSet.every(v => v.val != ''),
+			  oninput: ev => {stateVar.val = ev.target.value; clearAgencyFilter();}});
+	}
+
 	return div(
 	    div({class: 'form-group'},
-		label({class: 'form-label'}, "Filter: "),
-		input({placeholder: 'title', size: 2, value: titleFilter, oninput: ev => titleFilter.val = ev.target.value}),
+		label({class: 'form-label text-bold'}, "Filter: "),
+		sectionFilterInput('title', titleFilter),
 		" CFR § ",
-		input({placeholder: 'part', size: 2, value: partFilter, oninput: ev => partFilter = ev.target.value}),
+		sectionFilterInput('part', partFilter, [titleFilter]),
 		".",
-		input({placeholder: 'sec', size: 2, value: sectionFilter, oninput: ev => sectionFilter = ev.target.value}),
+		sectionFilterInput('sec', sectionFilter, [titleFilter, partFilter]),
 		" OR Agency: ",
-		select(
-		    option({value: 'FAA'}, 'FAA'),
+		select({onchange: ev => {agencyFilter.val = ev.target.value; clearSectionFilter();}},
+		    option({value: '', selected: () => !agencyFilter.val}, "(no filter)"),
+		    allAgencies.map(agency => option({value: agency.agency, selected: () => agencyFilter.val == agency.agency}, agency.agency)),
 		),
-		div(a({onclick: clearFilter, href: '#'}, "Clear All Filters")),
+		div(a({onclick: clearFilter, href: 'javascript:void();'}, "Clear All Filters")),
 	       ),
 	    div({class: 'form-group'},
-		label({class: 'form-label'}, "Granularity: "),
+		label({class: 'form-label text-bold'}, "Search Granularity:"),
 		div({class: 'btn-group'},
 		    btn(granularity, 'title', "Title"),
 		    btn(granularity, 'part', "Part"),
@@ -109,7 +128,7 @@ async function go() {
 	       ),
 	       ),
 	    div({class: 'form-group'},
-		label({class: 'form-label'}, "Sort key: "),
+		label({class: 'form-label text-bold'}, "Sort key:"),
 		div({class: 'btn-group'},
 		    btn(sortKey, 'num_words', "Number of words"),
 		    btn(sortKey, 'num_cases', "Number of court cases"),
@@ -123,14 +142,20 @@ async function go() {
     function queryDisplay() {
 	return () => {
 	    const maxValue = Math.max.apply(Math, queryResults.val.map(row => machineReadableValue(row, sortKey.val)));
-	    return table({id: 'data-table'},
+	    return table({id: 'data-table', cellspacing: 0},
 			 thead(
-			     tr(th("Location"), th({class: "number-column"}, "Cases/1000 Words"))
+			     tr(th("Location"), th(sortKeyDescription(sortKey.val)))
 			 ),
 			 tbody(queryResults.val.map(result => {
 			     const fraction = machineReadableValue(result, sortKey.val) / maxValue;
+
+			     function onclick() {
+				 applyFilterObj(newFilterObject(result, granularity.val));
+				 granularity.val = nextGranularity(granularity.val);
+			     }
+
 			     return tr({style: `background: linear-gradient(to right, rgba(0,0,0,.15) ${fraction * 100}%, transparent ${fraction * 100}%)`},
-				       td(humanReadableKey(result, granularity.val)),
+				       td(a({href: 'javascript:void();', onclick}, humanReadableKey(result, granularity.val))),
 				       td({class: 'number-column'}, humanReadableValue(result, sortKey.val)));
 			 })));
 	};
@@ -138,10 +163,15 @@ async function go() {
 
     function pdfLinksDisplay() {
 	return () =>
-	div(pdfs.val.map(pdf =>
-	    div(a({href: `https://www.govinfo.gov/content/pkg/${pdf.package_id}/pdf/${pdf.granule_id}.pdf`,
-		   target: "_blank"},
-		  pdf.case_title))));
+	div(h3("Related Cases"),
+	    pdfs.val.map(pdf =>
+		div(a({href: `https://www.govinfo.gov/content/pkg/${pdf.package_id}/pdf/${pdf.granule_id}.pdf`,
+		       target: "_blank",
+		       class: 'pdf-link'},
+		      img({class: 'pdf-img', src: pdfSvgPath}),
+		      pdf.case_title),
+		    ' ',
+		    span({class: 'text-gray'}, pdf.date_opinion_issued))));
     }
 
     van.add(document.getElementById('selectors'), selectorsDisplay());
@@ -150,18 +180,6 @@ async function go() {
 }
 
 go();
-
-function nextGranularity(last_granularity) {
-    switch(last_granularity) {
-    case "title": return "chapter";
-    case "chapter": return "part";
-    case "part": return "section";
-    case "agency": return "part";
-    default: return null;
-    }
-
-    throw new Error(`Unknown granularity ${last_granularity}`);
-}
 
 function theQuery(filter, granularity, sortKey, limit) {
     let query = knex('cfr_section')
@@ -205,7 +223,7 @@ function theQuery(filter, granularity, sortKey, limit) {
 
     query = query.select(columns).groupBy(columns);
 
-    // apply sort key (which is not just for sorting; also for which aggregate to compute)
+    // apply sort key (which is not just for sorting; also for which metric to compute)
     switch(sortKey) {
     case "num_cases":
 	query = query.countDistinct('court_opinion_pdf.package_id as num_cases').orderBy('num_cases', 'desc');
@@ -215,25 +233,61 @@ function theQuery(filter, granularity, sortKey, limit) {
 	break;
     case "case_word_ratio":
 	query = query
-	    .select(knex.raw('COUNT(DISTINCT court_opinion_pdf.package_id) / CAST(num_words as REAL) as case_word_ratio'))
+	    .select(knex.raw('CAST(COUNT(DISTINCT court_opinion_pdf.package_id) as REAL) / CAST(SUM(num_words) as REAL) as case_word_ratio'))
 	    .orderBy('case_word_ratio', 'desc');
 	break;
     default:
 	throw new Error(`Unknown sort key ${sortKey}`);
     }
 
+    console.log(query.toString());
     return query.toString();
 }
 
 function humanReadableKey(queryRes, granularity) {
     switch (granularity) {
-    case "title": return `CFR ${queryRes.title}`;
-    case "chapter": return `CFR ${queryRes.title} Ch. ${queryRes.chapter}`;
+    case "title": return `${queryRes.title} CFR`;
     case "part": return `${queryRes.title} CFR ${queryRes.part}`;
     case "section": return `${queryRes.title} CFR § ${queryRes.part}.${queryRes.section}`;
     case "agency": return queryRes.agency;
     default:
 	throw new Error(`Unrecognized granularity: ${granularity}`);
+    }
+}
+
+function newFilterObject(queryRes, granularity) {
+    const result = {agency: '', title: '', part: '', section: ''};
+
+    switch(granularity) {
+    case "title": result.title = queryRes.title; break;
+    case "part": result.title = queryRes.title; result.part = queryRes.part; break;
+    case "section": result.title = queryRes.title; result.part = queryRes.part; result.section = queryRes.section; break;
+    case "agency": result.agency = queryRes.agency; break;
+    default:
+	throw new Error(`Unrecognized granularity: ${granularity}`);
+    }
+
+    return result;
+}
+
+function nextGranularity(last_granularity) {
+    switch(last_granularity) {
+    case "title": return "part";
+    case "part": return "section";
+    case "agency": return "part";
+    default:
+	throw new Error(`No next granularity for ${last_granularity}`);
+    }
+
+    throw new Error(`Unknown granularity ${last_granularity}`);
+}
+
+function sortKeyDescription(sortKey) {
+    switch(sortKey) {
+    case "num_cases": return "# Court Cases";
+    case "num_words": return "# Words";
+    case "case_word_ratio": return "Cases per 1000 Words";
+    default: throw new Error(`Unknown sort key ${sortKey}`);
     }
 }
 
@@ -271,7 +325,7 @@ function pdfsQuery(filter, limit) {
 	})
 	.select('court_opinion_pdf.*')
 	.distinct()
-	.orderBy('court_opinion_pdf.date_opinion_issued')
+	.orderBy('court_opinion_pdf.date_opinion_issued', 'desc')
 	.limit(limit);
 
     if (filter.agency) {
@@ -289,4 +343,8 @@ function pdfsQuery(filter, limit) {
     }
 
     return query.toString();
+}
+
+function agencyListQuery() {
+    return knex('cfr_agency').select('agency').distinct().toString();
 }
