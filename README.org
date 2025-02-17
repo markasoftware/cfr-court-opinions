@@ -30,8 +30,11 @@
       You should parallelize across years/months that you wish to download using an external tool, eg
       GNU Parallel.
 ** Downloading eCFR data
-   Just run ~uv run ecfrs.py --work-dir ~/tmp/ecfr-work-dir~. There's no authentication on the API,
-   and the total amount of data is small enough that no parallelization or checkpointing is needed.
+   Just run ~uv run ecfrs.py --work-dir ~/tmp/ecfr-work-dir~.
+
+   Ideally we'd download the XML for each title individually...however specifically the XML for
+   title 40 seems to be too big to download, their server consistently times out. So instead, the
+   script downloads the XML for each part separately. This means it takes quite a while (few hours).
 ** Parsing the raw data
    Both the download scripts listed above do the minimal amount of work that requires network
    access. Next, you must convert the downloaded data to an SQLite database that the server can use.

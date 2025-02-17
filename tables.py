@@ -1,18 +1,18 @@
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
     pass
 
-class CfrSubpart(Base):
-    """Using title/part/subpart as the primary key isn't exactly what our founding fathers wanted,
+class CfrSection(Base):
+    """Using title/part/section as the primary key isn't exactly what our founding fathers wanted,
     but it'll do."""
-    __tablename__ = "cfr_subpart"
+    __tablename__ = "cfr_section"
 
     title: Mapped[int] = mapped_column(primary_key=True)
     chapter: Mapped[str]
     part: Mapped[int] = mapped_column(primary_key=True)
-    subpart: Mapped[int] = mapped_column(primary_key=True)
+    section: Mapped[int] = mapped_column(primary_key=True)
 
     num_words: Mapped[int]
 
@@ -33,6 +33,15 @@ class CfrPdf(Base):
     __tablename__ = "cfr_pdf"
 
     granule_id: Mapped[str] = mapped_column(ForeignKey(CourtOpinionPdf.granule_id), primary_key=True)
-    title: Mapped[int] = mapped_column(ForeignKey(CfrSubpart.title), primary_key=True)
-    part: Mapped[int] = mapped_column(ForeignKey(CfrSubpart.part), primary_key=True)
-    subpart: Mapped[int] = mapped_column(ForeignKey(CfrSubpart.subpart), primary_key=True)
+    title: Mapped[int] = mapped_column(ForeignKey(CfrSection.title), primary_key=True)
+    part: Mapped[int] = mapped_column(ForeignKey(CfrSection.part), primary_key=True)
+    section: Mapped[int] = mapped_column(ForeignKey(CfrSection.section), primary_key=True)
+
+class CfrAgency(Base):
+    """Will be multiple entries in this table per agency, one per (title, chapter) pair associated
+    with said agency."""
+    __tablename__ = "cfr_agency"
+
+    agency: Mapped[str] = mapped_column(primary_key=True)
+    title: Mapped[int] = mapped_column(ForeignKey(CfrSection.title), primary_key=True)
+    chapter: Mapped[str] = mapped_column(ForeignKey(CfrSection.chapter), primary_key=True)

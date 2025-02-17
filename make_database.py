@@ -7,14 +7,62 @@ from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.sqlite import insert
 from tqdm import tqdm
+import xml.etree.ElementTree as ET
 
 import tables
 from work_dir import WorkDir
 
 _LOGGER = logging.getLogger(__name__)
 
+def insert_agencies(work_dir: WorkDir, engine: Engine) -> None:
+    with open(work_dir.agencies_json_path(), "r", encoding="utf8") as f:
+        agencies_json = json.load(f)
+    with Session(engine) as session:
+        for agency in agencies_json["agencies"]:
+            for cfr_ref in agency["cfr_references"]:
+                if 'chapter' not in cfr_ref and 'subtitle' in cfr_ref:
+                    # there are 6 cfr references that are to subtitle instead of chapter. Not going to deal with these.
+                    continue
+                # there are also a number of agencies that are specific to a subchapter or part
+                # while also specifying a chapter. TODO try to deal with this, though as is we'll
+                # just slightly overestimate the word count so NBD.
+                session.execute(insert(tables.CfrAgency).values(
+                    agency = agency["name"],
+                    title = cfr_ref["title"],
+                    chapter = cfr_ref["chapter"],
+                ).on_conflict_do_nothing())
+            session.commit()
+
 def insert_ecfr(work_dir: WorkDir, engine: Engine) -> None:
-    ...
+    with Session(engine) as session:
+        for part_xml_desc in work_dir.part_xml_paths_iter(2025, 1):
+            # determine how many words are in the XML
+            tree = ET.parse(part_xml_desc.path)
+            tree_root = tree.getroot()
+
+            for div8 in tree_root.findall('.//DIV8'):
+                split_full_section_name = div8.attrib['N'].split(".")
+                if len(split_full_section_name) != 2:
+                    # TODO investigate what's happening when there's a "range" of sections -- eg 457.104-457.109. Is it just reserved sections?
+                    _LOGGER.warning(f"section name format: {div8.attrib['N']}")
+                    continue
+                section = int(split_full_section_name[1])
+
+                word_count = 0
+                for text in div8.itertext():
+                    word_count += len(text.split())
+
+                _LOGGER.info(f"Found {word_count} many words in title {part_xml_desc.title}/part {part_xml_desc.part}/section {section}")
+                session.add(tables.CfrSection(
+                    title=part_xml_desc.title,
+                    chapter=part_xml_desc.chapter,
+                    part=part_xml_desc.part,
+                    section=section,
+                    num_words=word_count,
+                ))
+
+        session.commit()
+
 
 def insert_pdfs(work_dir: WorkDir, engine: Engine) -> None:
     # build a global map from package ID to case title human readable. I should have simply put this
@@ -46,7 +94,7 @@ def insert_pdfs(work_dir: WorkDir, engine: Engine) -> None:
                     granule_id=reference_json["granule_id"],
                     title=reference_json["cfr_title"],
                     part=reference_json["cfr_part"],
-                    subpart=reference_json["cfr_subpart"],
+                    section=reference_json["cfr_subpart"],  # what's referred to as "subpart" in the reference jsons is actually section
                 ).on_conflict_do_nothing())
 
         session.commit()
@@ -56,12 +104,14 @@ def insert_pdfs(work_dir: WorkDir, engine: Engine) -> None:
 @click.option("--work-dir", "work_dir_path", type=click.Path(path_type=Path, file_okay=False, exists=True), help="The work dir you provided when scraping PDFs and the eCFR itself")
 @click.option("--database", "database_path", type=click.Path(path_type=Path, dir_okay=False), help="Where to place the output sqlite file")
 def make_database(work_dir_path: Path, database_path: Path) -> None:
+    database_path.unlink(missing_ok=True)
+
     work_dir = WorkDir(work_dir_path)
     engine = create_engine(f"sqlite:///{database_path}")
     tables.Base.metadata.create_all(engine)  # create tables
 
+    insert_agencies(work_dir, engine)
     insert_ecfr(work_dir, engine)
-
     insert_pdfs(work_dir, engine)
 
 

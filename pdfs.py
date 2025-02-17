@@ -26,6 +26,11 @@ responseName = str
 
 govinfo_api_host = "https://api.govinfo.gov"
 
+# WARNING: Throughout this file, I refer to "section" as "subpart" because I didn't know the
+# nomenclature correctly when I started scraping. By the time I realized I should have said
+# "section" instead, the scraping was already mostly done and I didn't want to restart it. I rename
+# everything correctly back to "section" when generating the sqlite database.
+
 # regex to match a "multi-cfr-reference", eg "20 CFR § 1.23, 2.34". Because Python can't handle
 # multiple matches of the same regex group, we capture all the comma-separated stuff into a single
 # group and then parse it apart later. I wish I was using Parsec instead rn...So to summarize, group

@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from collections.abc import Iterator
+import dataclasses as dc
 from pathlib import Path
 
 class WorkDir:
@@ -21,5 +24,25 @@ class WorkDir:
     def agencies_json_path(self) -> Path:
         return self._work_dir / "ecfr-agencies.json"
 
-    def title_xml_path(self, year: int, month: int, title: int) -> Path:
-        return self._work_dir / "cfr-xml" / str(year) / str(month) / f"title-{title}.xml"
+    def title_structure_path(self, year: int, month: int, title: int) -> Path:
+        return self._work_dir / "cfr-structure" / str(year) / str(month) / f"title-{title}-structure.json"
+
+    def part_xml_path(self, year: int, month: int, title: int, chapter: str, part: int) -> Path:
+        return self._work_dir / "cfr-xml" / str(year) / str(month) / f"title-{title}" / f"chapter-{chapter}" / f"part-{part}.xml"
+
+    def part_xml_paths_iter(self, year: int, month: int) -> Iterator[PartXmlDescriptor]:
+        for title_path in (self._work_dir / "cfr-xml" / str(year) / str(month)).glob("title-*"):
+            title = int(title_path.name.split('-')[1])
+            for chapter_path in title_path.glob("chapter-*"):
+                chapter = chapter_path.name.split('-')[1]
+                for part_path in chapter_path.glob("part-*.xml"):
+                    part = int(part_path.name.split('.')[0].split('-')[1])
+                    yield PartXmlDescriptor(path=part_path, title=title, chapter=chapter, part=part)
+
+
+@dc.dataclass(frozen=True, kw_only=True)
+class PartXmlDescriptor:
+    path: Path
+    title: int
+    chapter: str
+    part: int
