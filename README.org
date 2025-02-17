@@ -7,6 +7,34 @@
 
   The most interesting part of this IMO is the ability to view how many US court opinions reference
   each document.
-* Running locally
-  This tool needs both the eCFR data and US court opinions PDFs. It analyzes US court opinions to
-  search for mentions of CFRs.
+* Running
+** Prerequisites
+   + The ~uv~ Python package manager should be installed to your ~$PATH~.
+   + A relatively modern ~curl~ version
+** Downloading Court Opinion PDFs
+   This is much more involved than scraping the eCFR data, because each opinion's PDFs have to be
+   scraped separately. There is some intentional rate limiting on the govinfo side, but that's not
+   the real problem; their servers seem unable to handle downloading huge volumes of PDFs and start
+   giving 503s somewhat frequently.
+
+   1. Get an API key from govinfo
+   2. Run ~uv run pdfs.py --api-key YOUR_API_KEY --year 2024 --month 4 --work-dir
+      ~/tmp/ecfr-work-dir~ for example to scrape info from all pdfs into the given working dir.
+      The scraper saves its progress; if you interrupt and resume it, it will pick up where it left
+      off. It is recommended and safe to scrape multiple years and months to the same work dir (files
+      are put in a subdirectory for the selected year/month).
+
+      You should parallelize across years/months that you wish to download using an external tool, eg
+      GNU Parallel.
+** Downloading eCFR data
+   Just run ~uv run ecfrs.py --work-dir ~/tmp/ecfr-work-dir~. There's no authentication on the API,
+   and the total amount of data is small enough that no parallelization or checkpointing is needed.
+** Parsing the raw data
+   Both the download scripts listed above do the minimal amount of work that requires network
+   access. Next, you must convert the downloaded data to an SQLite database that the server can use.
+   To do this, run: ~uv run parse_work_dir.py --work-dir ~/tmp/ecfr-work-dir --database
+   /path/to/database.sqlite~ (the database file will be created, or overwritten if it already
+   exists)
+** Running the server
+   To host the website, run ~uv run serve.py --database /path/to/database.sqlite --port 8080~ then
+   see ~localhost:8080~

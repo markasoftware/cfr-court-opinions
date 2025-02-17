@@ -7,7 +7,10 @@ import json
 import logging
 from pathlib import Path
 import pdfminer.high_level
+from pdfminer.psexceptions import PSSyntaxError
+from pdfminer.pdfexceptions import PDFTypeError
 import urllib.parse
+import re
 import requests
 import subprocess
 import tempfile
@@ -20,6 +23,14 @@ _LOGGER = logging.getLogger(__name__)
 responseName = str
 
 govinfo_api_host = "https://api.govinfo.gov"
+
+# regex to match a "multi-cfr-reference", eg "20 CFR § 1.23, 2.34". Because Python can't handle
+# multiple matches of the same regex group, we capture all the comma-separated stuff into a single
+# group and then parse it apart later. I wish I was using Parsec instead rn...So to summarize, group
+# 1 is the title, then group 2 is the comma separated part.subpart
+multi_cfr_regex = r"(\d+)\s*C\s*\.\s*F\s*\.\s*R\s*\.?\s*§?\s*§?\s*((\d+\s*\.\s*\d+\s*,\s*)*(\d+\s*\.\s*\d+))"
+# each one of these is a cfr reference that we don't support
+unparseable_cfr_regexes = [r"\d+\s*C\s*\.\s*F\s*\.\s*R\s*\.?\s*,?\s*([Pp]art|[Pp]t\.?|§)\s*\d+,?\s*(([Ss]ubpart|[Ss]ubpt\.?)\s*[A-Z]+\s*,?\s*)?([Aa]ppendix|[Aa]pp)"]
 
 class GovInfoApi:
     def __init__(self, api_key: str):
@@ -130,31 +141,78 @@ def scrape_pdf(year: int, month: int, package: Package, ctx: ScrapeContext) -> N
     if cfr_references_path.exists():
         return
 
+    cfr_references = []
+
     with tempfile.TemporaryDirectory() as temp_dir_str:
         temp_dir = Path(temp_dir_str)
 
         zip_path = temp_dir / "zip.zip"
-        unzip_dir = temp_dir / "unzipped"
-        unzip_dir.mkdir()
 
         url = ctx.api.url_add_auth(f"{govinfo_api_host}/packages/{package.package_id}/zip")
         _LOGGER.info(f"Downloading zip: {url}")
         # I trust curl to download a large file to disk far more than anything in Python
-        subprocess.check_call(["curl", "--fail", "--retry", "3", "--retry-connrefused", "--connect-timeout", "10", "--max-time", "120", "--output", str(zip_path), url])
+        subprocess.check_call(["curl", "--fail", "--retry", "6", "--retry-delay", "30", "--retry-connrefused", "--retry-delay", "5", "--connect-timeout", "10", "--max-time", "300", "--output", str(zip_path), url])
 
         with ZipFile(str(zip_path), "r") as zf:
             for entry in zf.namelist():
-                if entry.endswith(".pdf"):
-                    _LOGGER.info(f"Scanning PDF {entry}")
-                    with zf.open(entry, "r") as f:
-                        text = pdfminer.high_level.extract_text(f)
-                        if len(text) < 50:  # sanity check
-                            raise RuntimeError(f"Text from PDF {entry} was too short: {text}")
+                if not entry.endswith(".pdf"):
+                    continue
+
+                _LOGGER.info(f"Scanning PDF {entry}")
+                granule_id = re.search(r"/([^/.]*).pdf", entry).group(1)  # type: ignore[union-attr]
+
+                with zf.open(entry, "r") as f:
+                    try:
+                        text = pdfminer.high_level.extract_text(f)  # type: ignore[arg-type]
+                    except PSSyntaxError as e:
+                        _LOGGER.error(f"Invalid PDF syntax!")
+                        _LOGGER.error(e)
+                        continue
+                    except PDFTypeError as e:
+                        _LOGGER.error(f"PDF Type Error!")
+                        _LOGGER.error(e)
+                        continue
+                    except TypeError as e:
+                        if "PDFObjRef" in str(e):
+                            _LOGGER.error("TypeError from pdfminer while extracting text (known issue)")
+                            _LOGGER.error(e)
+                            continue
+                        raise
+                num_cfr_expected = text.count("C.F.R")
+
+                cur_cfr_references = []
+
+                multi_cfr_matches = list(re.finditer(multi_cfr_regex, text))
+                for m in multi_cfr_matches:
+                    part_subpart_matches = re.findall(r"(\d+)\s*.\s*(\d+)([, ]|$)", m.group(2))
+                    for (part_str, subpart_str, _) in part_subpart_matches:
+                        cur_cfr_references.append(CfrReference(
+                            package_id=package.package_id,
+                            granule_id=str(granule_id),  # POSSIBLE PYTHON BUG: without str(), doesn't work
+                            orig_text=m.group(0),
+                            cfr_title=int(m.group(1)),
+                            cfr_part=int(part_str),
+                            cfr_subpart=int(subpart_str),
+                        ))
+
+                num_unparseable_cfrs = sum(len(re.findall(regex, text)) for regex in unparseable_cfr_regexes)
+
+                num_cfr_actual = len(multi_cfr_matches) + num_unparseable_cfrs
+                if num_cfr_actual < num_cfr_expected // 2:
+                    _LOGGER.error(f"Critically few CFR references: Found {num_cfr_expected} \"C.F.R\"s, but {num_cfr_actual} matched the full regex or are unparseable. Skipping for now.")
+                    return
+                if num_cfr_actual != num_cfr_expected:
+                    _LOGGER.warning(f"Found {num_cfr_expected} \"C.F.R\"s, but {num_cfr_actual} matched the full regex or are unparseable. Continuing anyway since at least half the CFRs were found.")
+
+                _LOGGER.info(f"Found {len(cur_cfr_references)} many CFR references (+ {num_unparseable_cfrs} unparseable)")
+                cfr_references += cur_cfr_references
+
+    with open(cfr_references_path, "w", encoding="utf8") as f:
+        json.dump(cfr_references_to_json(cfr_references), f)
+    _LOGGER.info(f"Total {len(cfr_references)} cfr references written to disk")
 
 
-
-
-@dc.dataclass
+@dc.dataclass(frozen=True, kw_only=True)
 class CfrReference:
     """All the information needed to encode a connection between a PDF and a CFR"""
     package_id: str
@@ -163,6 +221,9 @@ class CfrReference:
     cfr_title: int
     cfr_part: int
     cfr_subpart: int
+
+def cfr_references_to_json(cfr_references: list[CfrReference]) -> list[dict[str, str | int]]:
+    return [dc.asdict(ref) for ref in cfr_references]
 
 class ScrapeContext:
     def __init__(self, api_key: str, work_dir: Path) -> None:
