@@ -18,6 +18,8 @@ from tqdm import tqdm
 import typing as ty
 from zipfile import ZipFile
 
+from work_dir import WorkDir
+
 _LOGGER = logging.getLogger(__name__)
 
 responseName = str
@@ -120,7 +122,7 @@ def download_package_list(year: int, month: int, api: GovInfoApi) -> list[Packag
 
 def package_list(year: int, month: int, ctx: ScrapeContext) -> list[Package]:
     """Get the package list, using on-disk cache if available"""
-    path = ctx.package_list_path(year, month)
+    path = ctx.work_dir.package_list_path(year, month)
     if path.exists():
         with open(path, "r", encoding="utf8") as f:
             package_list_json = json.load(f)
@@ -137,7 +139,7 @@ def package_list(year: int, month: int, ctx: ScrapeContext) -> list[Package]:
     return packages
 
 def scrape_pdf(year: int, month: int, package: Package, ctx: ScrapeContext) -> None:
-    cfr_references_path = ctx.cfr_references_path(year, month, package.package_id)
+    cfr_references_path = ctx.work_dir.cfr_references_path(year, month, package.package_id)
     if cfr_references_path.exists():
         return
 
@@ -226,26 +228,18 @@ def cfr_references_to_json(cfr_references: list[CfrReference]) -> list[dict[str,
     return [dc.asdict(ref) for ref in cfr_references]
 
 class ScrapeContext:
-    def __init__(self, api_key: str, work_dir: Path) -> None:
-        work_dir.mkdir(parents=True, exist_ok=True)
-
+    def __init__(self, api_key: str, work_dir_path: Path) -> None:
         self.api = GovInfoApi(api_key)
-        self.work_dir = work_dir
-
-    def package_list_path(self, year: int, month: int) -> Path:
-        return self.work_dir / str(year) / str(month) / "packages.json"
-
-    def cfr_references_path(self, year: int, month: int, package_id: str) -> Path:
-        return self.work_dir / str(year) / str(month) / f"{package_id}-references.json"
+        self.work_dir = WorkDir(work_dir_path)
 
 
 @click.command()
 @click.option("--api-key", required=True, help="GovInfo API key")
 @click.option("--year", type=int, required=True)
 @click.option("--month", type=int, required=True)
-@click.option("--work-dir", type=click.Path(path_type=Path, file_okay=False), required=True)
-def scrape_pdfs(api_key: str, year: int, month: int, work_dir: Path):
-    ctx = ScrapeContext(api_key=api_key, work_dir=work_dir)
+@click.option("--work-dir", "work_dir_path", type=click.Path(path_type=Path, file_okay=False), required=True)
+def scrape_pdfs(api_key: str, year: int, month: int, work_dir_path: Path):
+    ctx = ScrapeContext(api_key=api_key, work_dir_path=work_dir_path)
 
     _LOGGER.info(f"About to scrape PDFs for {year}/{month}")
     packages = package_list(year=year, month=month, ctx=ctx)

@@ -1,12 +1,15 @@
 * Mark Polyakov's eCFR analyzer
   A web tool to see interesting facts about the Code of Federal Regulations!
 
-  This tool is hosted at https://markasoftware.com/cfr and runs with data from all 2024 court
-  opinions. As you'll see below, it's possible (and beneficial!) to run it with more data, but it
-  takes a long time to download and process 
+  My implementation cross-correlates with US Court opinions
+  [[https://www.govinfo.gov/app/collection/uscourts][available on GovInfo]] to display how often
+  each title/part/subpart of the CFR is referenced from court opinions, and to browse the individual
+  court opinions associated with each.
 
-  The most interesting part of this IMO is the ability to view how many US court opinions reference
-  each document.
+  I run a hosted version of this tool at https://markasoftware.com/cfr with all 2024 court opinions.
+  It's possible (and beneficial!) to run it with more data, but it takes a while to do so because
+  each year has hundreds of thousands of PDFs of court opinions that must be processed, and the
+  GovInfo API does not support bulk downloading of court opinions.
 * Running
 ** Prerequisites
    + The ~uv~ Python package manager should be installed to your ~$PATH~.
@@ -36,5 +39,8 @@
    /path/to/database.sqlite~ (the database file will be created, or overwritten if it already
    exists)
 ** Running the server
-   To host the website, run ~uv run serve.py --database /path/to/database.sqlite --port 8080~ then
-   see ~localhost:8080~
+   The frontend is entirely a static site! This is possible thanks to sqlite-wasm: We load the
+   sqlite database into the browser when the page is first loaded then query it with javascript from
+   then on.
+
+   So, all you have to do is build the frontend: ~parcel index.html~
