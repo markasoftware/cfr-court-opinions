@@ -1,0 +1,17 @@
+/* body { */
+/*     background: #000928; */
+/*     color: #eeeeee; */
+/* } */
+
+#container {
+    padding: 5%;
+}
+
+#data-table {
+    width: 100%;
+}
+
+.number-column {
+    width: 10rem;
+    text-align: right;
+}

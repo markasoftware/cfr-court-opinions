@@ -1,12 +1,20 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>eCFR info!</title>
+    <title>eCFR - Court Opinions Analyzer</title>
     <script type="module" src="main.js"></script>
+    <link rel="stylesheet" href="npm:spectre.css/dist/spectre.min.css">
+    <link rel="stylesheet" href="main.css">
   </head>
   <body>
-    <form id="selectors"></form>
-    <div id="results"></div>
-    <div id="pdf-links"></div>
+    <div class="container" id="container">
+      <h1>CFR - Court Opinions Analyzer</h1>
+      <div id="selectors"></div>
+      <div class="divider"></div>
+      <div class="columns">
+	<div id="results" class="col-7"></div>
+	<div id="pdf-links" class="col-5"></div>
+      </div>
+    </div>
   </body>
 </html>

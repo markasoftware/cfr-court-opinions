@@ -1,4 +1,5 @@
 import click
+from collections import defaultdict
 import dataclasses as dc
 import json
 from pathlib import Path
@@ -40,18 +41,20 @@ def insert_ecfr(work_dir: WorkDir, engine: Engine) -> None:
             tree = ET.parse(part_xml_desc.path)
             tree_root = tree.getroot()
 
+            word_count_per_section = defaultdict(int)
+
             for div8 in tree_root.findall('.//DIV8'):
                 split_full_section_name = div8.attrib['N'].split(".")
                 if len(split_full_section_name) != 2:
                     # TODO investigate what's happening when there's a "range" of sections -- eg 457.104-457.109. Is it just reserved sections?
                     _LOGGER.warning(f"section name format: {div8.attrib['N']}")
                     continue
-                section = int(split_full_section_name[1])
+                section = int(''.join(c for c in split_full_section_name[1] if c.isdigit()))
 
-                word_count = 0
                 for text in div8.itertext():
-                    word_count += len(text.split())
+                    word_count_per_section[section] += len(text.split())
 
+            for section, word_count in word_count_per_section.items():
                 _LOGGER.info(f"Found {word_count} many words in title {part_xml_desc.title}/part {part_xml_desc.part}/section {section}")
                 session.add(tables.CfrSection(
                     title=part_xml_desc.title,

@@ -2,7 +2,7 @@ import { sqlite3Worker1Promiser } from '@sqlite.org/sqlite-wasm';
 import mkKnex from 'knex';
 import van from 'vanjs-core';
 
-const {label, input, div, span, a} = van.tags;
+const {label, input, div, span, a, button, select, option, table, tbody, thead, tr, td, th} = van.tags;
 const knex = mkKnex({client: 'sqlite3'});
 
 const databasePath = new URL('cfr-db.sqlite', import.meta.url);
@@ -35,12 +35,20 @@ async function go() {
     await promiser('open', {filename: 'cfr-db.sqlite', vfs: 'opfs'});
     console.log('SQLite database open.');
 
-    const filter = van.state({
-	agency: null,
-	title: null,
-	part: null,
-	section: null,
-    });
+    const agencyFilter = van.state('');
+    const titleFilter = van.state('');
+    const partFilter = van.state('');
+    const sectionFilter = van.state('');
+
+    function filterObj() {
+	return {
+	    agency: agencyFilter.val,
+	    title: titleFilter.val,
+	    part: partFilter.val,
+	    section: sectionFilter.val,
+	};
+    }
+
     let granularity = van.state("title");
     let sortKey = van.state("case_word_ratio");
     let limit = van.state(100);
@@ -50,37 +58,89 @@ async function go() {
     let pdfs = van.state([]);
 
     van.derive(() => {
-	ez_query(theQuery(filter.val, granularity.val, sortKey.val, limit.val))
+	ez_query(theQuery(filterObj(), granularity.val, sortKey.val, limit.val))
 	    .then(res => queryResults.val = res);
     });
 
     van.derive(() => {
-	ez_query(pdfsQuery(filter.val, pdfsLimit.val))
+	ez_query(pdfsQuery(filterObj(), pdfsLimit.val))
 	    .then(res => pdfs.val = res);
     });
 
     function selectorsDisplay() {
+
+	function btn(stateVar, value, text) {
+	    return button({class: () => (stateVar.val == value ? 'active ' : '') + 'btn', onclick: () => stateVar.val = value}, text);
+	}
+
+	function clearFilter() {
+	    agencyFilter.val = titleFilter.val = partFilter.val = sectionFilter.val = '';
+	}
+
+	function clearAgencyFilter() {
+	    agencyFilter.val = '';
+	}
+
+	function clearSectionFilter() {
+	    titleFilter.val = partFilter.val = sectionFilter.val = '';
+	}
+
 	return div(
-	    div("Granularity: ",
-		span({onclick: () => granularity.val = 'title'}, "Title"),
-		" ",
-		span({onclick: () => granularity.val = 'part'}, "Part"),
-		" ",
-		span({onclick: () => granularity.val = 'section'}, "Section"),
-	       )
+	    div({class: 'form-group'},
+		label({class: 'form-label'}, "Filter: "),
+		input({placeholder: 'title', size: 2, value: titleFilter, oninput: ev => titleFilter.val = ev.target.value}),
+		" CFR § ",
+		input({placeholder: 'part', size: 2, value: partFilter, oninput: ev => partFilter = ev.target.value}),
+		".",
+		input({placeholder: 'sec', size: 2, value: sectionFilter, oninput: ev => sectionFilter = ev.target.value}),
+		" OR Agency: ",
+		select(
+		    option({value: 'FAA'}, 'FAA'),
+		),
+		div(a({onclick: clearFilter, href: '#'}, "Clear All Filters")),
+	       ),
+	    div({class: 'form-group'},
+		label({class: 'form-label'}, "Granularity: "),
+		div({class: 'btn-group'},
+		    btn(granularity, 'title', "Title"),
+		    btn(granularity, 'part', "Part"),
+		    btn(granularity, 'section', "Section"),
+		    btn(granularity, 'agency', "Agency"),
+	       ),
+	       ),
+	    div({class: 'form-group'},
+		label({class: 'form-label'}, "Sort key: "),
+		div({class: 'btn-group'},
+		    btn(sortKey, 'num_words', "Number of words"),
+		    btn(sortKey, 'num_cases', "Number of court cases"),
+		    btn(sortKey, 'case_word_ratio', "Court cases per word"),
+		    
+		   )
+	       ),
 	);
     }
 
     function queryDisplay() {
-	return () =>
-	div(queryResults.val.map(result =>
-	    div(humanReadableKey(result, granularity.val), " ", humanReadableValue(result, sortKey.val))));
+	return () => {
+	    const maxValue = Math.max.apply(Math, queryResults.val.map(row => machineReadableValue(row, sortKey.val)));
+	    return table({id: 'data-table'},
+			 thead(
+			     tr(th("Location"), th({class: "number-column"}, "Cases/1000 Words"))
+			 ),
+			 tbody(queryResults.val.map(result => {
+			     const fraction = machineReadableValue(result, sortKey.val) / maxValue;
+			     return tr({style: `background: linear-gradient(to right, rgba(0,0,0,.15) ${fraction * 100}%, transparent ${fraction * 100}%)`},
+				       td(humanReadableKey(result, granularity.val)),
+				       td({class: 'number-column'}, humanReadableValue(result, sortKey.val)));
+			 })));
+	};
     }
 
     function pdfLinksDisplay() {
 	return () =>
 	div(pdfs.val.map(pdf =>
-	    div(a({href: `https://www.govinfo.gov/content/pkg/${pdf.package_id}/pdf/${pdf.granule_id}.pdf`},
+	    div(a({href: `https://www.govinfo.gov/content/pkg/${pdf.package_id}/pdf/${pdf.granule_id}.pdf`,
+		   target: "_blank"},
 		  pdf.case_title))));
     }
 
@@ -177,11 +237,21 @@ function humanReadableKey(queryRes, granularity) {
     }
 }
 
+function machineReadableValue(queryRes, sortKey) {
+    switch (sortKey) {
+    case "num_words": return queryRes.num_words;
+    case "num_cases": return queryRes.num_cases;
+    case "case_word_ratio": return queryRes.case_word_ratio;
+    default:
+	throw new Error(`Unrecognized sort key: ${sortKey}`);
+    }
+}
+
 function humanReadableValue(queryRes, sortKey) {
     switch (sortKey) {
     case "num_words": return `${queryRes.num_words} Words`;
     case "num_cases": return `${queryRes.num_cases} Cases`;
-    case "case_word_ratio": return `${((queryRes.case_word_ratio || 0)*1000).toFixed(2)} Cases/Thousand Words`;
+    case "case_word_ratio": return `${((queryRes.case_word_ratio || 0)*1000).toFixed(2)}`;
     default:
 	throw new Error(`Unrecognized sort key: ${sortKey}`);
     }
@@ -201,7 +271,7 @@ function pdfsQuery(filter, limit) {
 	})
 	.select('court_opinion_pdf.*')
 	.distinct()
-	.orderBy('court_opinion_pdf.date_opinion_issued')  // just for stability
+	.orderBy('court_opinion_pdf.date_opinion_issued')
 	.limit(limit);
 
     if (filter.agency) {
