@@ -2,7 +2,7 @@ import { sqlite3Worker1Promiser } from '@sqlite.org/sqlite-wasm';
 import mkKnex from 'knex';
 import van from 'vanjs-core';
 
-const {label, input, div, span} = van.tags;
+const {label, input, div, span, a} = van.tags;
 const knex = mkKnex({client: 'sqlite3'});
 
 const databasePath = new URL('cfr-db.sqlite', import.meta.url);
@@ -38,19 +38,25 @@ async function go() {
     const filter = van.state({
 	agency: null,
 	title: null,
-	chapter: null,
 	part: null,
 	section: null,
     });
     let granularity = van.state("title");
     let sortKey = van.state("case_word_ratio");
     let limit = van.state(100);
+    let pdfsLimit = van.state(100);
 
     let queryResults = van.state([]);
+    let pdfs = van.state([]);
 
     van.derive(() => {
 	ez_query(theQuery(filter.val, granularity.val, sortKey.val, limit.val))
 	    .then(res => queryResults.val = res);
+    });
+
+    van.derive(() => {
+	ez_query(pdfsQuery(filter.val, pdfsLimit.val))
+	    .then(res => pdfs.val = res);
     });
 
     function selectorsDisplay() {
@@ -64,16 +70,18 @@ async function go() {
 	       )
 	);
     }
-	
+
     function queryDisplay() {
-	return () => {
-	    return div(queryResults.val.map(result =>
-		div(humanReadableKey(result, granularity.val), " ", humanReadableValue(result, sortKey.val))));
-	};
+	return () =>
+	div(queryResults.val.map(result =>
+	    div(humanReadableKey(result, granularity.val), " ", humanReadableValue(result, sortKey.val))));
     }
 
     function pdfLinksDisplay() {
-	return div("TODO: PDF Links");
+	return () =>
+	div(pdfs.val.map(pdf =>
+	    div(a({href: `https://www.govinfo.gov/content/pkg/${pdf.package_id}/pdf/${pdf.granule_id}.pdf`},
+		  pdf.case_title))));
     }
 
     van.add(document.getElementById('selectors'), selectorsDisplay());
@@ -115,13 +123,10 @@ function theQuery(filter, granularity, sortKey, limit) {
     } else {
 	if (filter.title) {
 	    query = query.where('cfr_section.title', filter.title);
-	    if (filter.chapter) {
-		query = query.where('cfr_section.chapter', filter.chapter);
-		if (filter.part) {
-		    query = query.where('cfr_section.part', filter.part);
-		    if (filter.section) {
-			query = query.where('cfr_section.section', filter.section);
-		    }
+	    if (filter.part) {
+		query = query.where('cfr_section.part', filter.part);
+		if (filter.section) {
+		    query = query.where('cfr_section.section', filter.section);
 		}
 	    }
 	}
@@ -180,4 +185,38 @@ function humanReadableValue(queryRes, sortKey) {
     default:
 	throw new Error(`Unrecognized sort key: ${sortKey}`);
     }
+}
+
+function pdfsQuery(filter, limit) {
+    let query = knex('cfr_section')
+	.join('cfr_pdf', function() {
+	    this.on('cfr_section.title', '=', 'cfr_pdf.title')
+		.on('cfr_section.part', '=', 'cfr_pdf.part')
+		.on('cfr_section.section', '=', 'cfr_pdf.section');
+	})
+	.join('court_opinion_pdf', 'cfr_pdf.granule_id', 'court_opinion_pdf.granule_id')
+	.leftJoin('cfr_agency', function() {
+	    this.on('cfr_section.title', '=', 'cfr_agency.title')
+	        .on('cfr_section.chapter', '=', 'cfr_agency.chapter');
+	})
+	.select('court_opinion_pdf.*')
+	.distinct()
+	.orderBy('court_opinion_pdf.date_opinion_issued')  // just for stability
+	.limit(limit);
+
+    if (filter.agency) {
+	query = query.where('cfr_agency.agency', filter.agency);
+    } else {
+	if (filter.title) {
+	    query = query.where('cfr_section.title', filter.title);
+	    if (filter.part) {
+		query = query.where('cfr_section.part', filter.part);
+		if (filter.section) {
+		    query = query.where('cfr_section.section', filter.section);
+		}
+	    }
+	}
+    }
+
+    return query.toString();
 }
