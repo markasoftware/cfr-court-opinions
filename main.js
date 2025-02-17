@@ -1,13 +1,13 @@
 import { sqlite3Worker1Promiser } from '@sqlite.org/sqlite-wasm';
 import mkKnex from 'knex';
-import van from 'van';
+import van from 'vanjs-core';
 
-const {label, input, div} = van.tags;
+const {label, input, div, span} = van.tags;
 const knex = mkKnex({client: 'sqlite3'});
 
 const databasePath = new URL('cfr-db.sqlite', import.meta.url);
 
-const granularities = ["title", "chapter", "part", "subpart", "agency"];
+const granularities = ["title", "chapter", "part", "section", "agency"];
 
 async function go() {
     const promiser = await new Promise((resolve) => {
@@ -35,9 +35,50 @@ async function go() {
     await promiser('open', {filename: 'cfr-db.sqlite', vfs: 'opfs'});
     console.log('SQLite database open.');
 
-    const queryDisplay = () => div(theQuery({agency: "FAA"}, "chapter", "num_cases"));
+    const filter = van.state({
+	agency: null,
+	title: null,
+	chapter: null,
+	part: null,
+	section: null,
+    });
+    let granularity = van.state("title");
+    let sortKey = van.state("case_word_ratio");
+    let limit = van.state(100);
 
-    van.add(document.getElementById('results'), queryDisplay);
+    let queryResults = van.state([]);
+
+    van.derive(() => {
+	ez_query(theQuery(filter.val, granularity.val, sortKey.val, limit.val))
+	    .then(res => queryResults.val = res);
+    });
+
+    function selectorsDisplay() {
+	return div(
+	    div("Granularity: ",
+		span({onclick: () => granularity.val = 'title'}, "Title"),
+		" ",
+		span({onclick: () => granularity.val = 'part'}, "Part"),
+		" ",
+		span({onclick: () => granularity.val = 'section'}, "Section"),
+	       )
+	);
+    }
+	
+    function queryDisplay() {
+	return () => {
+	    return div(queryResults.val.map(result =>
+		div(humanReadableKey(result, granularity.val), " ", humanReadableValue(result, sortKey.val))));
+	};
+    }
+
+    function pdfLinksDisplay() {
+	return div("TODO: PDF Links");
+    }
+
+    van.add(document.getElementById('selectors'), selectorsDisplay());
+    van.add(document.getElementById('results'), queryDisplay());
+    van.add(document.getElementById('pdf-links'), pdfLinksDisplay());
 }
 
 go();
@@ -46,7 +87,7 @@ function nextGranularity(last_granularity) {
     switch(last_granularity) {
     case "title": return "chapter";
     case "chapter": return "part";
-    case "part": return "subpart";
+    case "part": return "section";
     case "agency": return "part";
     default: return null;
     }
@@ -54,32 +95,32 @@ function nextGranularity(last_granularity) {
     throw new Error(`Unknown granularity ${last_granularity}`);
 }
 
-// the query must involve the CfrSubpart table
-function theQuery(filter, granularity, sortKey) {
-    let query = knex('cfr_subpart')
-	.join('cfr_pdf', function() {
-	    this.on('cfr_subpart.title', '=', 'cfr_pdf.title')
-		.on('cfr_subpart.part', '=', 'cfr_pdf.part')
-		.on('cfr_subpart.subpart', '=', 'cfr_pdf.subpart');
+function theQuery(filter, granularity, sortKey, limit) {
+    let query = knex('cfr_section')
+	.leftJoin('cfr_pdf', function() {
+	    this.on('cfr_section.title', '=', 'cfr_pdf.title')
+		.on('cfr_section.part', '=', 'cfr_pdf.part')
+		.on('cfr_section.section', '=', 'cfr_pdf.section');
 	})
-	.join('court_opinion_pdf', 'cfr_pdf.granule_id', 'court_opinion_pdf.granule_id')
-	.join('cfr_agency', function() {
-	    this.on('cfr_subpart.title', '=', 'cfr_agency.title')
-	        .on('cfr_subpart.chapter', '=', 'cfr_agency.chapter');
-	});
+	.leftJoin('court_opinion_pdf', 'cfr_pdf.granule_id', 'court_opinion_pdf.granule_id')
+	.leftJoin('cfr_agency', function() {
+	    this.on('cfr_section.title', '=', 'cfr_agency.title')
+	        .on('cfr_section.chapter', '=', 'cfr_agency.chapter');
+	})
+	.limit(limit);
 
     // apply filter
     if (filter.agency) {
 	query = query.where('cfr_agency.agency', filter.agency);
     } else {
 	if (filter.title) {
-	    query = query.where('cfr_subpart.title', filter.title);
+	    query = query.where('cfr_section.title', filter.title);
 	    if (filter.chapter) {
-		query = query.where('cfr_subpart.chapter', filter.chapter);
+		query = query.where('cfr_section.chapter', filter.chapter);
 		if (filter.part) {
-		    query = query.where('cfr_subpart.part', filter.part);
-		    if (filter.subpart) {
-			query = query.where('cfr_subpart.subpart', filter.subpart);
+		    query = query.where('cfr_section.part', filter.part);
+		    if (filter.section) {
+			query = query.where('cfr_section.section', filter.section);
 		    }
 		}
 	    }
@@ -89,10 +130,10 @@ function theQuery(filter, granularity, sortKey) {
     // apply granularity
     let columns;
     switch(granularity) {
-    case "title": columns = ['cfr_subpart.title']; break;
-    case "chapter": columns = ['cfr_subpart.title', 'cfr_subpart.chapter']; break;
-    case "part": columns = ['cfr_subpart.title', 'cfr_subpart.chapter', 'cfr_subpart.part']; break;
-    case "subpart": columns = ['cfr_subpart.title', 'cfr_subpart.chapter', 'cfr_subpart.part', 'cfr_subpart.subpart']; break;
+    case "title": columns = ['cfr_section.title']; break;
+    case "chapter": columns = ['cfr_section.title', 'cfr_section.chapter']; break;
+    case "part": columns = ['cfr_section.title', 'cfr_section.chapter', 'cfr_section.part']; break;
+    case "section": columns = ['cfr_section.title', 'cfr_section.chapter', 'cfr_section.part', 'cfr_section.section']; break;
     case "agency": columns = ['cfr_agency.agency']; break;
     default: throw new Error(`Unknown granularity ${granularity}`);
     }
@@ -105,12 +146,11 @@ function theQuery(filter, granularity, sortKey) {
 	query = query.countDistinct('court_opinion_pdf.package_id as num_cases').orderBy('num_cases', 'desc');
 	break;
     case "num_words":
-	query = query.sum('court_opinion_pdf.num_words as num_words').orderBy('num_words', 'desc');
+	query = query.sum('cfr_section.num_words as num_words').orderBy('num_words', 'desc');
 	break;
     case "case_word_ratio":
-	query = query.sum('court_opinion_pdf.num_words as num_words')
-	    .countDistinct('court_opinion_pdf.package_id as num_cases')
-	    .select(knex.raw('num_words / num_cases as case_word_ratio'))
+	query = query
+	    .select(knex.raw('COUNT(DISTINCT court_opinion_pdf.package_id) / CAST(num_words as REAL) as case_word_ratio'))
 	    .orderBy('case_word_ratio', 'desc');
 	break;
     default:
@@ -118,4 +158,26 @@ function theQuery(filter, granularity, sortKey) {
     }
 
     return query.toString();
+}
+
+function humanReadableKey(queryRes, granularity) {
+    switch (granularity) {
+    case "title": return `CFR ${queryRes.title}`;
+    case "chapter": return `CFR ${queryRes.title} Ch. ${queryRes.chapter}`;
+    case "part": return `${queryRes.title} CFR ${queryRes.part}`;
+    case "section": return `${queryRes.title} CFR § ${queryRes.part}.${queryRes.section}`;
+    case "agency": return queryRes.agency;
+    default:
+	throw new Error(`Unrecognized granularity: ${granularity}`);
+    }
+}
+
+function humanReadableValue(queryRes, sortKey) {
+    switch (sortKey) {
+    case "num_words": return `${queryRes.num_words} Words`;
+    case "num_cases": return `${queryRes.num_cases} Cases`;
+    case "case_word_ratio": return `${((queryRes.case_word_ratio || 0)*1000).toFixed(2)} Cases/Thousand Words`;
+    default:
+	throw new Error(`Unrecognized sort key: ${sortKey}`);
+    }
 }
