@@ -40,10 +40,10 @@
 ** Parsing the raw data
    Both the download scripts listed above do the minimal amount of work that requires network
    access. Next, you must convert the downloaded data to an SQLite database that the server can use.
-   To do this, run: ~uv run parse_work_dir.py --work-dir ~/tmp/ecfr-work-dir --database
+   To do this, run: ~uv run make_database.py --work-dir ~/tmp/ecfr-work-dir --database
    /path/to/repo/cfr-db.sqlite~ (the database file will be created, or overwritten if it already
-   exists). Please use this exact file name and place it in the same place as this repo so that the
-   next step is able to find it.
+   exists). You must use the filename ~cfr-db.sqlite~ and place it in this repo's directory for the
+   next step to be able to find it.
 ** Running the server
    The frontend is entirely a static site! This is possible thanks to sqlite-wasm: We load the
    sqlite database into the browser when the page is first loaded then query it with javascript from
