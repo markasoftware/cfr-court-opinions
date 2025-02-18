@@ -64,6 +64,7 @@ async function go() {
 
     let queryResults = van.state([]);
     let pdfs = van.state([]);
+    let numPdfs = van.state(0);
 
     van.derive(() => {
 	const queryText = theQuery(filterObj(), granularity.val, sortKey.val, limit.val);
@@ -74,6 +75,8 @@ async function go() {
     van.derive(() => {
 	ez_query(pdfsQuery(filterObj(), pdfsLimit.val))
 	    .then(res => pdfs.val = res);
+	ez_query(pdfsCountQuery(filterObj()))
+	    .then(res => numPdfs.val = res[0].num_pdfs);
     });
 
     const allAgencies = await ez_query(agencyListQuery());
@@ -164,7 +167,7 @@ async function go() {
 
     function pdfLinksDisplay() {
 	return () =>
-	div(h3("Matching Cases"),
+	div(h3(() => `Matching Cases (${numPdfs.val} total)`),
 	    pdfs.val.map(pdf =>
 		div(a({href: `https://www.govinfo.gov/content/pkg/${pdf.package_id}/pdf/${pdf.granule_id}.pdf`,
 		       target: "_blank",
@@ -172,7 +175,8 @@ async function go() {
 		      img({class: 'pdf-img', src: pdfSvgPath}),
 		      pdf.case_title),
 		    ' ',
-		    span({class: 'text-gray'}, pdf.date_opinion_issued))));
+		    span({class: 'text-gray'}, pdf.date_opinion_issued))),
+	    div({class: 'text-center text-italic'}, numPdfs.val > pdfsLimit.val ? `+ ${numPdfs.val - pdfsLimit.val} more...` : ''));
     }
 
     van.add(document.getElementById('selectors'), selectorsDisplay());
@@ -293,11 +297,12 @@ function queryApplyFilter(query, filter) {
 }
 
 function ellipsize(str, len = 40) {
-	if (str.length <= len) {
-	    return str;
-	} else {
-	    return str.slice(0, len - 3) + '...';
-	}
+    if (!str) return '';
+    if (str.length <= len) {
+	return str;
+    } else {
+	return str.slice(0, len - 3) + '...';
+    }
 }
 
 function humanReadableKey(queryRes, granularity) {
@@ -367,7 +372,7 @@ function humanReadableValue(queryRes, sortKey) {
     }
 }
 
-function pdfsQuery(filter, limit) {
+function unlimitedPdfsQuery(filter) {
     let query = knex('cfr_section')
 	.join('cfr_pdf', function() {
 	    this.on('cfr_section.title', '=', 'cfr_pdf.title')
@@ -381,12 +386,17 @@ function pdfsQuery(filter, limit) {
 	})
 	.select('court_opinion_pdf.*')
 	.distinct() // will handle the occasional case of duplicated cfr_agency
-	.orderBy('court_opinion_pdf.date_opinion_issued', 'desc')
-	.limit(limit);
+	.orderBy('court_opinion_pdf.date_opinion_issued', 'desc');
 
-    query = queryApplyFilter(query, filter);
+    return queryApplyFilter(query, filter);
+}
 
-    return query.toString();
+function pdfsQuery(filter, limit) {
+    return unlimitedPdfsQuery(filter).limit(limit).toString();
+}
+
+function pdfsCountQuery(filter) {
+    return knex.count('* as num_pdfs').from(unlimitedPdfsQuery(filter).as('pdfs')).toString();
 }
 
 function agencyListQuery() {
