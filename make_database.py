@@ -24,6 +24,8 @@ def insert_agencies(work_dir: WorkDir, engine: Engine) -> None:
                 if 'chapter' not in cfr_ref and 'subtitle' in cfr_ref:
                     # there are 6 cfr references that are to subtitle instead of chapter. Not going to deal with these.
                     continue
+                if 'subchapter' in cfr_ref:
+                    continue
                 # there are also a number of agencies that are specific to a subchapter or part
                 # while also specifying a chapter. TODO try to deal with this, though as is we'll
                 # just slightly overestimate the word count so NBD.

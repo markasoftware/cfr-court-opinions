@@ -57,8 +57,8 @@ async function go() {
 	sectionFilter.val = filterObj.section;
     }
 
-    let granularity = van.state("title");
-    let sortKey = van.state("case_word_ratio");
+    let granularity = van.state("agency");
+    let sortKey = van.state("num_cases");
     let limit = van.state(100);
     let pdfsLimit = van.state(20);
 
@@ -113,7 +113,7 @@ async function go() {
 		".",
 		sectionFilterInput('sec', sectionFilter, [titleFilter, partFilter]),
 		" OR Agency: ",
-		select({onchange: ev => {agencyFilter.val = ev.target.value; clearSectionFilter();}},
+		select({id: 'agency-select', onchange: ev => {agencyFilter.val = ev.target.value; clearSectionFilter();}},
 		    option({value: '', selected: () => !agencyFilter.val}, "(no filter)"),
 		    allAgencies.map(agency => option({value: agency.agency, selected: () => agencyFilter.val == agency.agency}, agency.agency)),
 		),
@@ -164,7 +164,7 @@ async function go() {
 
     function pdfLinksDisplay() {
 	return () =>
-	div(h3("Related Cases"),
+	div(h3("Matching Cases"),
 	    pdfs.val.map(pdf =>
 		div(a({href: `https://www.govinfo.gov/content/pkg/${pdf.package_id}/pdf/${pdf.granule_id}.pdf`,
 		       target: "_blank",
@@ -198,9 +198,8 @@ function theQuery(filter, granularity, sortKey, limit) {
     let columns;
     switch(granularity) {
     case "title": columns = ['cfr_section.title']; break;
-    case "chapter": columns = ['cfr_section.title', 'cfr_section.chapter']; break;
-    case "part": columns = ['cfr_section.title', 'cfr_section.chapter', 'cfr_section.part']; break;
-    case "section": columns = ['cfr_section.title', 'cfr_section.chapter', 'cfr_section.part', 'cfr_section.section']; break;
+    case "part": columns = ['cfr_section.title', 'cfr_section.part']; break;
+    case "section": columns = ['cfr_section.title', 'cfr_section.part', 'cfr_section.section', 'cfr_section.description']; break;
     case "agency": columns = ['cfr_agency.agency']; break;
     default: throw new Error(`Unknown granularity ${granularity}`);
     }
@@ -226,24 +225,54 @@ function theQuery(filter, granularity, sortKey, limit) {
 
 
     // apply sort key (which is not just for sorting; also for which metric to compute)
+    let sortedQuery;
     switch(sortKey) {
     case "num_cases":
-	return numCasesQuery.orderBy('num_cases', 'desc').limit(limit).toString();
+	sortedQuery = numCasesQuery.orderBy('num_cases', 'desc');
+	break;
     case "num_words":
-	return wordsQuery.orderBy('num_words', 'desc').limit(limit).toString();
+	sortedQuery = wordsQuery.orderBy('num_words', 'desc');
+	break;
     case "case_word_ratio":
-	return knex.select(columns.map(col => 'wq.' + col.split('.')[1]))
+	sortedQuery = knex.select(columns.map(col => 'wq.' + col.split('.')[1]))
 	    .from(wordsQuery.clone().as('wq'))
 	    .join(numCasesQuery.clone().as('ncq'), function() {
 		columns.forEach(col => this.on('wq.' + col.split('.')[1], '=', 'ncq.' + col.split('.')[1]));
 	    })
 	    .select(knex.raw('CAST(num_cases as REAL) / CAST(num_words as REAL) as case_word_ratio'))
-	    .orderBy('case_word_ratio', 'desc')
-	    .limit(limit)
-	    .toString();
+	    .orderBy('case_word_ratio', 'desc');
+	break;
     default:
 	throw new Error(`Unknown sort key ${sortKey}`);
     }
+
+    // join it with appropriate description table
+    let describedQuery;
+    switch(granularity) {
+    case "title":
+	describedQuery = sortedQuery.joinRaw('JOIN cfr_title USING (title)')
+	    .select('cfr_title.description as title_description');
+	break;
+    case "part":
+	describedQuery = sortedQuery.joinRaw('JOIN cfr_part USING (title, part)')
+	    .select('cfr_part.description as part_description');
+	break;
+    case "section":
+	// awful awful last-minute hack here, i'm so sorry
+	if (sortKey == "case_word_ratio") {
+	    describedQuery = sortedQuery.select("wq.description as section_description");
+	} else {
+	    describedQuery = sortedQuery.select("cfr_section.description as section_description");
+	}
+	break;
+    case "agency":
+	describedQuery = sortedQuery;
+	break;
+    default:
+	throw new Error(`Unknown granularity ${granularity}`);
+    }
+
+    return describedQuery.limit(limit).toString();
 }
 
 function queryApplyFilter(query, filter) {
@@ -263,11 +292,19 @@ function queryApplyFilter(query, filter) {
     return query;
 }
 
+function ellipsize(str, len = 40) {
+	if (str.length <= len) {
+	    return str;
+	} else {
+	    return str.slice(0, len - 3) + '...';
+	}
+}
+
 function humanReadableKey(queryRes, granularity) {
     switch (granularity) {
-    case "title": return `${queryRes.title} CFR`;
-    case "part": return `${queryRes.title} CFR ${queryRes.part}`;
-    case "section": return `${queryRes.title} CFR § ${queryRes.part}.${queryRes.section}`;
+    case "title": return `${queryRes.title} CFR: ${ellipsize(queryRes.title_description)}`;
+    case "part": return `${queryRes.title} CFR ${queryRes.part}: ${ellipsize(queryRes.part_description)}`;
+    case "section": return `${queryRes.title} CFR § ${queryRes.part}.${queryRes.section}: ${ellipsize(queryRes.section_description)}`;
     case "agency": return queryRes.agency;
     default:
 	throw new Error(`Unrecognized granularity: ${granularity}`);

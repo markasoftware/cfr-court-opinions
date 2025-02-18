@@ -1,14 +1,13 @@
-/* body { */
-/*     background: #000928; */
-/*     color: #eeeeee; */
-/* } */
-
 #container {
     padding: 5%;
 }
 
 #data-table {
     width: 100%;
+}
+
+#agency-select {
+    max-width: 20em;
 }
 
 .number-column {

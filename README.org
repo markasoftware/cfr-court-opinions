@@ -1,18 +1,20 @@
-* Mark Polyakov's eCFR analyzer
-  A web tool to see interesting facts about the Code of Federal Regulations!
+* Mark Polyakov's eCFR - Court Opinion cross reference finder
+  A web tool to see interesting facts about the Code of Federal Regulations and how it's referenced
+  from court opinions!
 
-  My implementation cross-correlates with US Court opinions
-  [[https://www.govinfo.gov/app/collection/uscourts][available on GovInfo]] to display how often
-  each title/part/subpart of the CFR is referenced from court opinions, and to browse the individual
-  court opinions associated with each.
+  My implementation cross-correlates with US Court opinions [[https://www.govinfo.gov/app/collection/uscourts][available on GovInfo]] to display how
+  often each title/part/subpart of the CFR is referenced from court opinions, and to browse the
+  individual court opinions associated with each.
 
-  I run a hosted version of this tool at https://markasoftware.com/cfr with all 2024 court opinions.
-  It's possible (and beneficial!) to run it with more data, but it takes a while to do so because
-  each year has hundreds of thousands of PDFs of court opinions that must be processed, and the
-  GovInfo API does not support bulk downloading of court opinions.
+  I run a hosted version of this tool at https://markasoftware.com/cfr-court-opinions with all 2024
+  court opinions. It's possible (and beneficial!) to run it with more data, but it takes a while to
+  do so because each year has hundreds of thousands of PDFs of court opinions that must be
+  processed, and the GovInfo API does not support bulk downloading of court opinions so there's a
+  lot of HTTP requests involved.
 * Running
 ** Prerequisites
-   + The ~uv~ Python package manager should be installed to your ~$PATH~.
+   + The ~uv~ Python package manager
+   + ~npm~ and node.js
    + A relatively modern ~curl~ version
 ** Downloading Court Opinion PDFs
    This is much more involved than scraping the eCFR data, because each opinion's PDFs have to be
@@ -39,11 +41,12 @@
    Both the download scripts listed above do the minimal amount of work that requires network
    access. Next, you must convert the downloaded data to an SQLite database that the server can use.
    To do this, run: ~uv run parse_work_dir.py --work-dir ~/tmp/ecfr-work-dir --database
-   /path/to/database.sqlite~ (the database file will be created, or overwritten if it already
-   exists)
+   /path/to/repo/cfr-db.sqlite~ (the database file will be created, or overwritten if it already
+   exists). Please use this exact file name and place it in the same place as this repo so that the
+   next step is able to find it.
 ** Running the server
    The frontend is entirely a static site! This is possible thanks to sqlite-wasm: We load the
    sqlite database into the browser when the page is first loaded then query it with javascript from
    then on.
 
-   So, all you have to do is build the frontend: ~parcel index.html~
+   So, all you have to do is ~npm run serve~ to get a live server running.
