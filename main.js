@@ -34,7 +34,9 @@ async function go() {
     writable.close();
 
     await promiser('open', {filename: 'cfr-db.sqlite', vfs: 'opfs'});
+
     console.log('SQLite database open.');
+
 
     const agencyFilter = van.state('');
     const titleFilter = van.state('');
@@ -66,13 +68,16 @@ async function go() {
     let pdfs = van.state([]);
     let numPdfs = van.state(0);
 
+    let queryInProgress = van.state(false);
+
     van.derive(() => {
 	const queryText = theQuery(filterObj(), granularity.val, sortKey.val, limit.val);
 	console.log(queryText);
-	ez_query(queryText).then(res => queryResults.val = res);
-    });
-
-    van.derive(() => {
+	queryInProgress.val = true;
+	ez_query(queryText).then(res => {
+	    queryResults.val = res;
+	    queryInProgress.val = false;
+	});
 	ez_query(pdfsQuery(filterObj(), pdfsLimit.val))
 	    .then(res => pdfs.val = res);
 	ez_query(pdfsCountQuery(filterObj()))
@@ -179,9 +184,19 @@ async function go() {
 	    div({class: 'text-center text-italic'}, numPdfs.val > pdfsLimit.val ? `+ ${numPdfs.val - pdfsLimit.val} more...` : ''));
     }
 
+    function queryLoadingDisplay() {
+	return div({class: () => queryInProgress.val ? 'd-visible' : 'd-invisible'},
+		   div({class: 'loading loading-lg'}),
+		   "Running query with SQLite in WASM!");
+    }
+
+    const initialLoadingElt = document.getElementById('initial-loading');
+    initialLoadingElt.classList.add('d-none');
+
     van.add(document.getElementById('selectors'), selectorsDisplay());
     van.add(document.getElementById('results'), queryDisplay());
     van.add(document.getElementById('pdf-links'), pdfLinksDisplay());
+    van.add(document.getElementById('query-loading'), queryLoadingDisplay());
 }
 
 go();
