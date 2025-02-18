@@ -23,17 +23,21 @@ async function go() {
 
     // download the sqlite database itself
     // TODO only download if not already in opfs
-    const response = await fetch(databasePath);
-    const arrayBuffer = await response.arrayBuffer();
+    try {
+	const response = await fetch(databasePath);
+	const arrayBuffer = await response.arrayBuffer();
 
-    // write it to opfs
-    const opfsRoot = await navigator.storage.getDirectory();
-    const fh = await opfsRoot.getFileHandle('cfr-db.sqlite', { create: true });
-    const writable = await fh.createWritable();
-    writable.write(arrayBuffer);
-    writable.close();
+	// write it to opfs
+	const opfsRoot = await navigator.storage.getDirectory();
+	const fh = await opfsRoot.getFileHandle('cfr-db.sqlite', { create: true });
+	const writable = await fh.createWritable();
+	writable.write(arrayBuffer);
+	writable.close();
 
-    await promiser('open', {filename: 'cfr-db.sqlite', vfs: 'opfs'});
+	await promiser('open', {filename: 'cfr-db.sqlite', vfs: 'opfs'});
+    } catch (e) {
+	alert(`Fatal error! ${e}`);
+    }
 
     console.log('SQLite database open.');
 
