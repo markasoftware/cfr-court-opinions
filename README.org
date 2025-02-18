@@ -49,4 +49,4 @@
    sqlite database into the browser when the page is first loaded then query it with javascript from
    then on.
 
-   So, all you have to do is ~npm run serve~ to get a live server running.
+   So, all you have to do is ~npm install~ then ~npm run serve~ to get a live server running.
