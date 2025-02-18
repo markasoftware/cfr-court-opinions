@@ -32,10 +32,11 @@ class CfrPdf(Base):
     """Join table between CFRs and PDFs. Records which CFRs are mentioned from which PDFs"""
     __tablename__ = "cfr_pdf"
 
-    granule_id: Mapped[str] = mapped_column(ForeignKey(CourtOpinionPdf.granule_id), primary_key=True)
+    # Very important to maintain this ordering of fields for efficient indexing!
     title: Mapped[int] = mapped_column(ForeignKey(CfrSection.title), primary_key=True)
     part: Mapped[int] = mapped_column(ForeignKey(CfrSection.part), primary_key=True)
     section: Mapped[int] = mapped_column(ForeignKey(CfrSection.section), primary_key=True)
+    granule_id: Mapped[str] = mapped_column(ForeignKey(CourtOpinionPdf.granule_id), primary_key=True)
 
 class CfrAgency(Base):
     """Will be multiple entries in this table per agency, one per (title, chapter) pair associated

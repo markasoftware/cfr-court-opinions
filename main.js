@@ -66,8 +66,9 @@ async function go() {
     let pdfs = van.state([]);
 
     van.derive(() => {
-	ez_query(theQuery(filterObj(), granularity.val, sortKey.val, limit.val))
-	    .then(res => queryResults.val = res);
+	const queryText = theQuery(filterObj(), granularity.val, sortKey.val, limit.val);
+	console.log(queryText);
+	ez_query(queryText).then(res => queryResults.val = res);
     });
 
     van.derive(() => {
@@ -182,20 +183,64 @@ async function go() {
 go();
 
 function theQuery(filter, granularity, sortKey, limit) {
-    let query = knex('cfr_section')
-	.leftJoin('cfr_pdf', function() {
-	    this.on('cfr_section.title', '=', 'cfr_pdf.title')
-		.on('cfr_section.part', '=', 'cfr_pdf.part')
-		.on('cfr_section.section', '=', 'cfr_pdf.section');
-	})
-	.leftJoin('court_opinion_pdf', 'cfr_pdf.granule_id', 'court_opinion_pdf.granule_id')
+    const sectionAndAgencyQuery = knex('cfr_section')
 	.leftJoin('cfr_agency', function() {
 	    this.on('cfr_section.title', '=', 'cfr_agency.title')
 	        .on('cfr_section.chapter', '=', 'cfr_agency.chapter');
-	})
-	.limit(limit);
+	});
+
+    let columns;
+    switch(granularity) {
+    case "title": columns = ['cfr_section.title']; break;
+    case "chapter": columns = ['cfr_section.title', 'cfr_section.chapter']; break;
+    case "part": columns = ['cfr_section.title', 'cfr_section.chapter', 'cfr_section.part']; break;
+    case "section": columns = ['cfr_section.title', 'cfr_section.chapter', 'cfr_section.part', 'cfr_section.section']; break;
+    case "agency": columns = ['cfr_agency.agency']; break;
+    default: throw new Error(`Unknown granularity ${granularity}`);
+    }
 
     // apply filter
+    const wordsQuery = queryApplyFilter(sectionAndAgencyQuery.clone(), filter)
+	  .select(columns)
+	  .groupBy(columns)
+	  .sum('cfr_section.num_words as num_words');
+
+    const allTablesQuery = sectionAndAgencyQuery.clone()
+	  .leftJoin('cfr_pdf', function() {
+	      this.on('cfr_section.title', '=', 'cfr_pdf.title')
+		  .on('cfr_section.part', '=', 'cfr_pdf.part')
+		  .on('cfr_section.section', '=', 'cfr_pdf.section');
+	  })
+	  .leftJoin('court_opinion_pdf', 'cfr_pdf.granule_id', 'court_opinion_pdf.granule_id');
+
+    const numCasesQuery = queryApplyFilter(allTablesQuery.clone(), filter)
+	  .select(columns)
+	  .groupBy(columns)
+	  .countDistinct('court_opinion_pdf.package_id as num_cases');
+
+
+    // apply sort key (which is not just for sorting; also for which metric to compute)
+    switch(sortKey) {
+    case "num_cases":
+	return numCasesQuery.orderBy('num_cases', 'desc').limit(limit).toString();
+    case "num_words":
+	return wordsQuery.orderBy('num_words', 'desc').limit(limit).toString();
+    case "case_word_ratio":
+	return knex.select(columns.map(col => 'wq.' + col.split('.')[1]))
+	    .from(wordsQuery.clone().as('wq'))
+	    .join(numCasesQuery.clone().as('ncq'), function() {
+		columns.forEach(col => this.on('wq.' + col.split('.')[1], '=', 'ncq.' + col.split('.')[1]));
+	    })
+	    .select(knex.raw('CAST(num_cases as REAL) / CAST(num_words as REAL) as case_word_ratio'))
+	    .orderBy('case_word_ratio', 'desc')
+	    .limit(limit)
+	    .toString();
+    default:
+	throw new Error(`Unknown sort key ${sortKey}`);
+    }
+}
+
+function queryApplyFilter(query, filter) {
     if (filter.agency) {
 	query = query.where('cfr_agency.agency', filter.agency);
     } else {
@@ -209,39 +254,7 @@ function theQuery(filter, granularity, sortKey, limit) {
 	    }
 	}
     }
-
-    // apply granularity
-    let columns;
-    switch(granularity) {
-    case "title": columns = ['cfr_section.title']; break;
-    case "chapter": columns = ['cfr_section.title', 'cfr_section.chapter']; break;
-    case "part": columns = ['cfr_section.title', 'cfr_section.chapter', 'cfr_section.part']; break;
-    case "section": columns = ['cfr_section.title', 'cfr_section.chapter', 'cfr_section.part', 'cfr_section.section']; break;
-    case "agency": columns = ['cfr_agency.agency']; break;
-    default: throw new Error(`Unknown granularity ${granularity}`);
-    }
-
-    query = query.select(columns).groupBy(columns);
-
-    // apply sort key (which is not just for sorting; also for which metric to compute)
-    switch(sortKey) {
-    case "num_cases":
-	query = query.countDistinct('court_opinion_pdf.package_id as num_cases').orderBy('num_cases', 'desc');
-	break;
-    case "num_words":
-	query = query.sum('cfr_section.num_words as num_words').orderBy('num_words', 'desc');
-	break;
-    case "case_word_ratio":
-	query = query
-	    .select(knex.raw('CAST(COUNT(DISTINCT court_opinion_pdf.package_id) as REAL) / CAST(SUM(num_words) as REAL) as case_word_ratio'))
-	    .orderBy('case_word_ratio', 'desc');
-	break;
-    default:
-	throw new Error(`Unknown sort key ${sortKey}`);
-    }
-
-    console.log(query.toString());
-    return query.toString();
+    return query;
 }
 
 function humanReadableKey(queryRes, granularity) {
@@ -324,23 +337,11 @@ function pdfsQuery(filter, limit) {
 	        .on('cfr_section.chapter', '=', 'cfr_agency.chapter');
 	})
 	.select('court_opinion_pdf.*')
-	.distinct()
+	.distinct() // will handle the occasional case of duplicated cfr_agency
 	.orderBy('court_opinion_pdf.date_opinion_issued', 'desc')
 	.limit(limit);
 
-    if (filter.agency) {
-	query = query.where('cfr_agency.agency', filter.agency);
-    } else {
-	if (filter.title) {
-	    query = query.where('cfr_section.title', filter.title);
-	    if (filter.part) {
-		query = query.where('cfr_section.part', filter.part);
-		if (filter.section) {
-		    query = query.where('cfr_section.section', filter.section);
-		}
-	    }
-	}
-    }
+    query = queryApplyFilter(query, filter);
 
     return query.toString();
 }
