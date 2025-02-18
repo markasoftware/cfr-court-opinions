@@ -19,7 +19,7 @@ def insert_agencies(work_dir: WorkDir, engine: Engine) -> None:
     with open(work_dir.agencies_json_path(), "r", encoding="utf8") as f:
         agencies_json = json.load(f)
     with Session(engine) as session:
-        for agency in agencies_json["agencies"]:
+        def insert_refs(agency):
             for cfr_ref in agency["cfr_references"]:
                 if 'chapter' not in cfr_ref and 'subtitle' in cfr_ref:
                     # there are 6 cfr references that are to subtitle instead of chapter. Not going to deal with these.
@@ -32,7 +32,13 @@ def insert_agencies(work_dir: WorkDir, engine: Engine) -> None:
                     title = cfr_ref["title"],
                     chapter = cfr_ref["chapter"],
                 ).on_conflict_do_nothing())
-            session.commit()
+            for child in agency.get('children', []):
+                insert_refs(child)
+
+        for agency_json in agencies_json["agencies"]:
+            insert_refs(agency_json)
+
+        session.commit()
 
 def insert_ecfr(work_dir: WorkDir, engine: Engine) -> None:
     with Session(engine) as session:

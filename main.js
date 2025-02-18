@@ -183,11 +183,17 @@ async function go() {
 go();
 
 function theQuery(filter, granularity, sortKey, limit) {
-    const sectionAndAgencyQuery = knex('cfr_section')
-	.leftJoin('cfr_agency', function() {
+    let sectionAndAgencyQuery = knex('cfr_section');
+
+    if (filter.agency || granularity === "agency") {
+	// only apply if we need it, otherwise there are a few chapters that belong to multiple
+	// agencies, and the join would cause those rows to be duplicated and thus double counted
+	// when counting num_words. This is quite a hack and i am ashamed of it
+	sectionAndAgencyQuery.leftJoin('cfr_agency', function() {
 	    this.on('cfr_section.title', '=', 'cfr_agency.title')
 	        .on('cfr_section.chapter', '=', 'cfr_agency.chapter');
 	});
+    }
 
     let columns;
     switch(granularity) {
