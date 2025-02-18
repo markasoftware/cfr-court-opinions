@@ -44,6 +44,10 @@ def insert_ecfr(work_dir: WorkDir, engine: Engine) -> None:
     with Session(engine) as session:
         for part_xml_desc in work_dir.part_xml_paths_iter(2025, 1):
             # determine how many words are in the XML
+            title_descriptions_json_path = work_dir.title_descriptions_json_path(2025, 1, part_xml_desc.title)
+            with open(title_descriptions_json_path, "r") as f:
+                title_descriptions = json.load(f)
+
             tree = ET.parse(part_xml_desc.path)
             tree_root = tree.getroot()
 
@@ -68,6 +72,25 @@ def insert_ecfr(work_dir: WorkDir, engine: Engine) -> None:
                     part=part_xml_desc.part,
                     section=section,
                     num_words=word_count,
+                    description=title_descriptions["section"].get(f"{part_xml_desc.part}.{section}", ''),
+                ))
+
+        for title in range(1, 50+1):
+            if title == 35:
+                continue
+            title_descriptions_json_path = work_dir.title_descriptions_json_path(2025, 1, title)
+            with open(title_descriptions_json_path, "r") as f:
+                title_descriptions = json.load(f)
+
+            session.add(tables.CfrTitle(
+                title=title,
+                description=title_descriptions["title"][str(title)],
+            ))
+            for part, description in title_descriptions["part"].items():
+                session.add(tables.CfrPart(
+                    title=title,
+                    part=part,
+                    description=description,
                 ))
 
         session.commit()

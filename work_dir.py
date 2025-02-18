@@ -39,6 +39,9 @@ class WorkDir:
                     part = int(part_path.name.split('.')[0].split('-')[1])
                     yield PartXmlDescriptor(path=part_path, title=title, chapter=chapter, part=part)
 
+    def title_descriptions_json_path(self, year: int, month: int, title: int) -> Path:
+        return self._work_dir / "title-description" / str(year) / str(month) / f"title-{title}.json"
+
 
 @dc.dataclass(frozen=True, kw_only=True)
 class PartXmlDescriptor:

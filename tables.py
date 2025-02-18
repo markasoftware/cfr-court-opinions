@@ -15,6 +15,7 @@ class CfrSection(Base):
     section: Mapped[int] = mapped_column(primary_key=True)
 
     num_words: Mapped[int]
+    description: Mapped[str]
 
 class CourtOpinionPdf(Base):
     __tablename__ = "court_opinion_pdf"
@@ -46,3 +47,16 @@ class CfrAgency(Base):
     agency: Mapped[str] = mapped_column(primary_key=True)
     title: Mapped[int] = mapped_column(ForeignKey(CfrSection.title), primary_key=True)
     chapter: Mapped[str] = mapped_column(ForeignKey(CfrSection.chapter), primary_key=True)
+
+class CfrTitle(Base):
+    __tablename__ = "cfr_title"
+
+    title: Mapped[int] = mapped_column(primary_key=True)
+    description: Mapped[str]
+
+class CfrPart(Base):
+    __tablename__ = "cfr_part"
+
+    title: Mapped[int] = mapped_column(primary_key=True)
+    part: Mapped[int] = mapped_column(primary_key=True)
+    description: Mapped[str]
